@@ -1,176 +1,214 @@
-const API_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "http://127.0.0.1:8000";
 
+function getToken() {
+  return localStorage.getItem("token");
+}
 
-// ==========================================
-// LOGIN
-// ==========================================
+function authHeaders() {
+  const token = getToken();
 
-export async function loginUser(email, password) {
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
-  const response = await fetch(`${API_URL}/auth/login`, {
+/* =========================
+   AUTH
+========================= */
+
+export async function registerStudent(data) {
+  const response = await fetch(`${API_BASE_URL}/auth/register`, {
     method: "POST",
-
     headers: {
       "Content-Type": "application/json",
     },
-
-    body: JSON.stringify({
-      email,
-      password,
-    }),
+    body: JSON.stringify(data),
   });
 
-  const data = await response.json();
+  const result = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      data.detail || "Invalid email or password"
-    );
+    throw new Error(result.detail || "Registration failed");
   }
 
-  return data;
+  return result;
 }
 
 
-// ==========================================
-// REGISTER
-// ==========================================
-
-export async function registerUser(userData) {
-
-  const response = await fetch(`${API_URL}/auth/register`, {
+export async function loginStudent(data) {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
-
     headers: {
       "Content-Type": "application/json",
     },
-
-    body: JSON.stringify(userData),
+    body: JSON.stringify(data),
   });
 
-  const data = await response.json();
+  const result = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      data.detail || "Registration failed"
-    );
+    throw new Error(result.detail || "Login failed");
   }
 
-  return data;
+  return result;
 }
 
 
-// ==========================================
-// GET PROFILE
-// ==========================================
+/* =========================
+   PROFILE
+========================= */
 
 export async function getProfile() {
+  const response = await fetch(`${API_BASE_URL}/profile/me`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
 
-  const token = localStorage.getItem("access_token");
-
-  const response = await fetch(
-    `${API_URL}/profile/me`,
-    {
-      method: "GET",
-
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
-
-  const data = await response.json();
+  const result = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      data.detail || "Unable to load profile"
-    );
+    throw new Error(result.detail || "Unable to load profile");
   }
 
-  return data;
+  return result;
 }
 
 
-// ==========================================
-// GET DASHBOARD
-// ==========================================
+/* =========================
+   DASHBOARD
+========================= */
 
 export async function getDashboard() {
+  const response = await fetch(`${API_BASE_URL}/dashboard/summary`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
 
-  const token = localStorage.getItem("access_token");
-
-  if (!token) {
-    throw new Error("Please login first.");
-  }
-
-  const response = await fetch(
-    `${API_URL}/dashboard/summary`,
-    {
-      method: "GET",
-
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const data = await response.json();
+  const result = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      data.detail || "Unable to load dashboard"
-    );
+    throw new Error(result.detail || "Unable to load dashboard");
   }
 
-  return data;
+  return result;
 }
 
 
-// ==========================================
-// UPLOAD RESUME
-// ==========================================
+/* =========================
+   RESUME
+========================= */
 
 export async function uploadResume(file) {
-
-  const token = localStorage.getItem("access_token");
+  const token = getToken();
 
   const formData = new FormData();
 
   formData.append("file", file);
 
-  const response = await fetch(
-    `${API_URL}/resume/upload`,
-    {
-      method: "POST",
+  const response = await fetch(`${API_BASE_URL}/resume/upload`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
 
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-
-      body: formData,
-    }
-  );
-
-  const data = await response.json();
+  const result = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      data.detail || "Resume upload failed"
-    );
+    throw new Error(result.detail || "Resume upload failed");
   }
 
-  return data;
+  return result;
 }
 
 
-// ==========================================
-// LOGOUT
-// ==========================================
+/* =========================
+   INTERVIEW
+========================= */
 
-export function logoutUser() {
+export async function getInterviewQuestions() {
+  const response = await fetch(
+    `${API_BASE_URL}/interviews/questions`,
+    {
+      method: "GET",
+      headers: authHeaders(),
+    }
+  );
 
-  localStorage.removeItem("access_token");
+  const result = await response.json();
 
-  localStorage.removeItem("student_id");
+  if (!response.ok) {
+    throw new Error(
+      result.detail || "Unable to load interview questions"
+    );
+  }
+
+  return result;
+}
+
+
+export async function evaluateInterviewAnswer(
+  question,
+  answer
+) {
+  const response = await fetch(
+    `${API_BASE_URL}/interviews/evaluate`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        question,
+        answer,
+      }),
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result.detail || "Unable to evaluate answer"
+    );
+  }
+
+  return result;
+}
+
+
+export async function saveInterviewPerformance(scores) {
+  const response = await fetch(
+    `${API_BASE_URL}/interviews/performance`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        scores,
+      }),
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result.detail ||
+        "Unable to save interview performance"
+    );
+  }
+
+  return result;
+}
+
+
+/* =========================
+   LOGOUT
+========================= */
+
+export function logoutStudent() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("student");
+
+  window.location.href = "/";
 }

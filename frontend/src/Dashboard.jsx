@@ -1,73 +1,141 @@
-import { useEffect, useState } from "react";
-import "./Dashboard.css";
-import { getDashboard, uploadResume } from "./api";
+import React, { useEffect, useRef, useState } from "react";
 
-function Dashboard({ onLogout }) {
+import {
+  getDashboard,
+  getProfile,
+  uploadResume,
+  getInterviewQuestions,
+  evaluateInterviewAnswer,
+  saveInterviewPerformance,
+  logoutStudent,
+} from "./api";
+
+import "./dashboard.css";
+
+
+function Dashboard() {
   const [dashboard, setDashboard] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [profile, setProfile] = useState(null);
+
   const [activeSection, setActiveSection] = useState("dashboard");
 
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+
   const [uploadMessage, setUploadMessage] = useState("");
+  const [error, setError] = useState("");
+
+  /* =========================
+     REFS
+  ========================= */
+
+  const fileInputRef = useRef(null);
+  const answerInputRef = useRef(null);
+
+
+  /* =========================
+     INTERVIEW STATE
+  ========================= */
+
+  const [interviewQuestions, setInterviewQuestions] = useState([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [currentAnswer, setCurrentAnswer] = useState("");
+
+  const [interviewScores, setInterviewScores] = useState([]);
+
+  const [interviewStarted, setInterviewStarted] = useState(false);
+  const [interviewFinished, setInterviewFinished] = useState(false);
+  const [interviewLoading, setInterviewLoading] = useState(false);
+
+  const [interviewMessage, setInterviewMessage] = useState("");
+  const [lastEvaluation, setLastEvaluation] = useState(null);
+
+
+  /* =========================
+     LOAD DATA
+  ========================= */
 
   useEffect(() => {
     loadDashboard();
   }, []);
+
+
+  /*
+     IMPORTANT:
+     Focus the answer box only when the interview
+     starts or when the question changes.
+
+     It does NOT run when the user types.
+     Therefore, typing will not remove focus.
+  */
+  useEffect(() => {
+    if (
+      interviewStarted &&
+      answerInputRef.current
+    ) {
+      setTimeout(() => {
+        answerInputRef.current?.focus();
+      }, 0);
+    }
+  }, [
+    currentQuestionIndex,
+    interviewStarted,
+  ]);
+
 
   async function loadDashboard() {
     try {
       setLoading(true);
       setError("");
 
-      const data = await getDashboard();
+      const dashboardData = await getDashboard();
 
-      console.log("Dashboard data:", data);
-      setDashboard(data);
+      setDashboard(dashboardData);
+
+      try {
+        const profileData = await getProfile();
+        setProfile(profileData);
+      } catch (profileError) {
+        console.log(
+          "Profile loading skipped:",
+          profileError
+        );
+      }
+
     } catch (err) {
-      console.error("Dashboard error:", err);
-      setError(err?.message || "Unable to load dashboard");
+      console.error(err);
+
+      setError(
+        err.message ||
+        "Unable to load dashboard"
+      );
+
     } finally {
       setLoading(false);
     }
   }
 
-  function handleLogout() {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("student_id");
 
-    if (onLogout) {
-      onLogout();
-    }
-  }
+  /* =========================
+     RESUME UPLOAD
+  ========================= */
 
-  function handleFileChange(event) {
-    const file = event.target.files?.[0];
+  async function handleResumeUpload(event) {
+    const file =
+      event.target.files?.[0];
 
     if (!file) {
       return;
     }
 
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setSelectedFile(null);
-      setUploadMessage("Please select a PDF file.");
-      return;
-    }
+    if (
+      file.type !==
+      "application/pdf"
+    ) {
+      setUploadMessage(
+        "Please upload a PDF resume."
+      );
 
-    if (file.size > 10 * 1024 * 1024) {
-      setSelectedFile(null);
-      setUploadMessage("File must be smaller than 10 MB.");
-      return;
-    }
-
-    setSelectedFile(file);
-    setUploadMessage("");
-  }
-
-  async function handleResumeUpload() {
-    if (!selectedFile) {
-      setUploadMessage("Please select your resume first.");
       return;
     }
 
@@ -75,760 +143,2117 @@ function Dashboard({ onLogout }) {
       setUploading(true);
       setUploadMessage("");
 
-      const result = await uploadResume(selectedFile);
-
-      console.log("Upload result:", result);
+      const result =
+        await uploadResume(file);
 
       setUploadMessage(
-        result?.message || "Resume uploaded successfully!"
+        result.message ||
+        "Resume uploaded successfully."
       );
-
-      setSelectedFile(null);
 
       await loadDashboard();
+
     } catch (err) {
-      console.error("Upload error:", err);
+      console.error(err);
+
       setUploadMessage(
-        err?.message || "Resume upload failed."
+        err.message ||
+        "Resume upload failed."
       );
+
     } finally {
       setUploading(false);
     }
   }
 
+
+  /* =========================
+     START INTERVIEW
+  ========================= */
+
+  async function handleStartInterview() {
+    try {
+      setInterviewLoading(true);
+      setInterviewMessage("");
+
+      setInterviewFinished(false);
+      setInterviewStarted(false);
+
+      setCurrentQuestionIndex(0);
+      setCurrentAnswer("");
+
+      setInterviewScores([]);
+      setLastEvaluation(null);
+
+      const result =
+        await getInterviewQuestions();
+
+      console.log(
+        "Interview response:",
+        result
+      );
+
+      if (
+        !result.questions ||
+        result.questions.length === 0
+      ) {
+        throw new Error(
+          "No interview questions were generated."
+        );
+      }
+
+      setInterviewQuestions(
+        result.questions
+      );
+
+      setInterviewStarted(true);
+
+      setActiveSection("interview");
+
+    } catch (err) {
+      console.error(err);
+
+      setInterviewMessage(
+        err.message ||
+        "Unable to start interview."
+      );
+
+    } finally {
+      setInterviewLoading(false);
+    }
+  }
+
+
+  /* =========================
+     GET QUESTION TEXT
+  ========================= */
+
+  function getQuestionText(question) {
+    if (!question) {
+      return "";
+    }
+
+    if (
+      typeof question === "string"
+    ) {
+      return question;
+    }
+
+    if (
+      typeof question === "object"
+    ) {
+      return (
+        question.question ||
+        question.text ||
+        question.title ||
+        ""
+      );
+    }
+
+    return String(question);
+  }
+
+
+  /* =========================
+     GET QUESTION CATEGORY
+  ========================= */
+
+  function getQuestionCategory(question) {
+    if (
+      !question ||
+      typeof question !== "object"
+    ) {
+      return "Interview";
+    }
+
+    return (
+      question.category ||
+      question.type ||
+      "Interview"
+    );
+  }
+
+
+  /* =========================
+     SUBMIT ANSWER
+  ========================= */
+
+  async function handleSubmitAnswer() {
+    if (!currentAnswer.trim()) {
+      setInterviewMessage(
+        "Please write an answer before continuing."
+      );
+
+      return;
+    }
+
+    const currentQuestion =
+      interviewQuestions[
+        currentQuestionIndex
+      ];
+
+    const questionText =
+      getQuestionText(
+        currentQuestion
+      );
+
+    try {
+      setInterviewLoading(true);
+      setInterviewMessage("");
+      setLastEvaluation(null);
+
+      const result =
+        await evaluateInterviewAnswer(
+          questionText,
+          currentAnswer.trim()
+        );
+
+      console.log(
+        "Evaluation response:",
+        result
+      );
+
+      const evaluation =
+        result.evaluation ||
+        result;
+
+      let score =
+        Number(evaluation.score) ||
+        Number(
+          evaluation.overall_score
+        ) ||
+        Number(
+          evaluation.total_score
+        ) ||
+        Number(
+          evaluation.rating
+        ) ||
+        0;
+
+      if (score > 100) {
+        score = 100;
+      }
+
+      if (score < 0) {
+        score = 0;
+      }
+
+      const updatedScores = [
+        ...interviewScores,
+        score,
+      ];
+
+      setInterviewScores(
+        updatedScores
+      );
+
+      setLastEvaluation(
+        evaluation
+      );
+
+      const isLastQuestion =
+        currentQuestionIndex >=
+        interviewQuestions.length - 1;
+
+      if (isLastQuestion) {
+
+        const performance =
+          await saveInterviewPerformance(
+            updatedScores
+          );
+
+        console.log(
+          "Interview performance:",
+          performance
+        );
+
+        setInterviewFinished(true);
+        setInterviewStarted(false);
+
+        setInterviewMessage(
+          "Interview completed successfully."
+        );
+
+        await loadDashboard();
+
+      } else {
+
+        setCurrentQuestionIndex(
+          currentQuestionIndex + 1
+        );
+
+        setCurrentAnswer("");
+
+        /*
+          The focus effect will automatically
+          focus the textarea for the next question.
+        */
+      }
+
+    } catch (err) {
+      console.error(err);
+
+      setInterviewMessage(
+        err.message ||
+        "Unable to evaluate your answer."
+      );
+
+    } finally {
+      setInterviewLoading(false);
+    }
+  }
+
+
+  /* =========================
+     DASHBOARD VALUES
+  ========================= */
+
+  const student =
+    dashboard?.student || {};
+
+  const resume =
+    dashboard?.resume || {};
+
+  const placement =
+    dashboard?.placement || {};
+
+  const jobs =
+    dashboard?.jobs || {};
+
+  const interview =
+    dashboard?.interview || {};
+
+
+  const studentName =
+    student.name ||
+    profile?.name ||
+    "Student";
+
+
+  const targetRole =
+    student.target_role ||
+    profile?.target_role ||
+    "Career Seeker";
+
+
+  const resumeScore =
+    Number(
+      resume.score ??
+      resume.resume_score ??
+      student.resume_score ??
+      0
+    );
+
+
+  const placementScore =
+    Number(
+      placement.score ??
+      placement.placement_score ??
+      student.placement_score ??
+      0
+    );
+
+
+  const interviewScore =
+    Number(
+      interview.overall_score ??
+      interview.score ??
+      student.interview_score ??
+      0
+    );
+
+
+  const questionsAnswered =
+    Number(
+      interview.questions_answered ??
+      student.interview_questions_answered ??
+      0
+    );
+
+
+  const jobMatches =
+    Number(
+      jobs.count ??
+      jobs.total ??
+      jobs.matches ??
+      0
+    );
+
+
+  const cgpa =
+    student.cgpa ??
+    profile?.cgpa ??
+    "-";
+
+
+  const skills =
+    student.skills ||
+    profile?.skills ||
+    [];
+
+
+  /* =========================
+     LOADING
+  ========================= */
+
   if (loading) {
     return (
-      <div className="dashboard-loading">
-        <h2>Loading your dashboard...</h2>
-        <p>Please wait.</p>
+      <div className="app-loading">
+
+        <div className="loading-spinner"></div>
+
+        <h2>
+          Loading CareerGenAI
+        </h2>
+
+        <p>
+          Preparing your career dashboard...
+        </p>
+
       </div>
     );
   }
 
-  if (error) {
+
+  /* =========================
+     ERROR
+  ========================= */
+
+  if (error && !dashboard) {
     return (
-      <div className="dashboard-error-page">
-        <div className="error-card">
-          <h2>Unable to load dashboard</h2>
-          <p>{error}</p>
+      <div className="app-loading">
 
-          <button
-            className="primary-dashboard-button"
-            onClick={loadDashboard}
-          >
-            Try Again
-          </button>
-
-          <button
-            className="secondary-dashboard-button"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
+        <div className="error-icon">
+          !
         </div>
+
+        <h2>
+          Unable to load dashboard
+        </h2>
+
+        <p>
+          {error}
+        </p>
+
+        <button
+          className="primary-button"
+          onClick={loadDashboard}
+        >
+          Try Again
+        </button>
+
       </div>
     );
   }
 
-  if (!dashboard) {
+
+  /* =========================
+     NAVIGATION
+  ========================= */
+
+  function NavigationItem({
+    id,
+    icon,
+    label,
+  }) {
     return (
-      <div className="dashboard-loading">
-        <h2>No dashboard data available.</h2>
-      </div>
+      <button
+        className={
+          `sidebar-nav-item ${
+            activeSection === id
+              ? "active"
+              : ""
+          }`
+        }
+        onClick={() => {
+          setActiveSection(id);
+
+          if (id !== "interview") {
+            setInterviewMessage("");
+          }
+        }}
+      >
+        <span className="nav-icon">
+          {icon}
+        </span>
+
+        <span>
+          {label}
+        </span>
+      </button>
     );
   }
 
-  // -----------------------------
-  // DASHBOARD DATA
-  // -----------------------------
 
-  const student = dashboard.student || {};
-  const resume = dashboard.resume || {};
-  const placement = dashboard.placement || {};
-  const jobs = dashboard.jobs || {};
-  const interview = dashboard.interview || {};
+  /* =========================
+     SCORE CIRCLE
+  ========================= */
 
-  const studentName = student.name || "Student";
-
-  const firstName =
-    studentName.trim().split(" ")[0] || "Student";
-
-  const placementScore = Number(
-    placement.placement_score || 0
-  );
-
-  const resumeScore = Number(
-    resume.resume_score ||
-      resume.score ||
-      0
-  );
-
-  const interviewScore = Number(
-    interview.overall_score ||
-      interview.score ||
-      0
-  );
-
-  const questionsAnswered = Number(
-    interview.questions_answered || 0
-  );
-
-  const skills = Array.isArray(student.skills)
-    ? student.skills.join(", ")
-    : student.skills || "Not provided";
-
-  const jobRecommendations = Array.isArray(
-    jobs.recommendations
-  )
-    ? jobs.recommendations
-    : [];
-
-  const strengths = Array.isArray(placement.strengths)
-    ? placement.strengths
-    : [];
-
-  const suggestions = Array.isArray(
-    placement.suggestions
-  )
-    ? placement.suggestions
-    : [];
-
-  // -----------------------------
-  // HOME
-  // -----------------------------
-
-  function HomeSection() {
+  function ScoreCircle({
+    score,
+    label,
+  }) {
     return (
-      <>
-        <div className="dashboard-topbar">
-          <div>
-            <h1>Career Dashboard</h1>
-            <p>Your AI Career Companion</p>
+      <div className="score-circle-container">
+
+        <div
+          className="score-circle"
+          style={{
+            "--score":
+              `${Math.min(
+                Math.max(score, 0),
+                100
+              ) * 3.6}deg`,
+          }}
+        >
+          <div className="score-circle-inner">
+
+            <strong>
+              {score}
+            </strong>
+
+            <span>
+              /100
+            </span>
+
           </div>
-
-          <button
-            className="logout-button"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
         </div>
 
-        <div className="welcome-card">
-          <h2>
-            Welcome back, {firstName} 👋
-          </h2>
-
-          <p>
-            Here's a quick overview of your career
-            readiness, resume, jobs and interview
-            performance.
-          </p>
-
-          <button
-            className="primary-dashboard-button"
-            onClick={() => setActiveSection("resume")}
-          >
-            Improve My Resume
-          </button>
+        <div className="score-circle-label">
+          {label}
         </div>
 
-        <div className="main-score-card">
+      </div>
+    );
+  }
+
+
+  /* =========================
+     DASHBOARD VIEW
+  ========================= */
+
+  function DashboardView() {
+    return (
+      <div className="dashboard-content">
+
+        <div className="page-heading">
+
           <div>
-            <h3>Placement Score</h3>
+            <span className="eyebrow">
+              CAREER OVERVIEW
+            </span>
 
-            <h1>{placementScore}/100</h1>
+            <h1>
+              Welcome back,{" "}
+              {studentName.split(" ")[0]}.
+            </h1>
 
             <p>
-              {placementScore >= 80
-                ? "Excellent"
-                : placementScore >= 60
-                ? "Good"
-                : placementScore >= 40
-                ? "Needs Improvement"
-                : "Getting Started"}
+              Here is your latest
+              career-readiness overview.
             </p>
           </div>
+
+          <button
+            className="primary-button"
+            onClick={handleStartInterview}
+            disabled={interviewLoading}
+          >
+            {interviewLoading
+              ? "Starting..."
+              : "Start Interview"}
+          </button>
+
         </div>
 
-        <div className="dashboard-grid">
 
-          <div className="dashboard-card">
-            <div className="card-icon">📄</div>
+        {interviewMessage && (
+          <div className="dashboard-notice">
+            {interviewMessage}
+          </div>
+        )}
 
-            <h3>Resume Score</h3>
 
-            <h2>{resumeScore}/100</h2>
+        {/* SCORE CARDS */}
+
+        <div className="stats-grid">
+
+          <div className="stat-card">
+
+            <div className="stat-card-top">
+
+              <span className="stat-label">
+                PLACEMENT SCORE
+              </span>
+
+              <span className="stat-icon">
+                ↗
+              </span>
+
+            </div>
+
+            <div className="stat-value">
+              {placementScore}
+              <span>/100</span>
+            </div>
+
+            <div className="progress-track">
+
+              <div
+                className="progress-fill"
+                style={{
+                  width:
+                    `${Math.min(
+                      placementScore,
+                      100
+                    )}%`,
+                }}
+              />
+
+            </div>
 
             <p>
-              {resumeScore > 0
-                ? "Resume analyzed"
-                : "Upload your resume"}
+              Overall career readiness
             </p>
 
-            <button
-              className="card-button"
-              onClick={() => setActiveSection("resume")}
-            >
-              Upload Resume
-            </button>
           </div>
 
-          <div className="dashboard-card">
-            <div className="card-icon">🎯</div>
 
-            <h3>Placement Score</h3>
+          <div className="stat-card">
 
-            <h2>{placementScore}/100</h2>
+            <div className="stat-card-top">
 
-            <p>Career readiness</p>
+              <span className="stat-label">
+                RESUME SCORE
+              </span>
+
+              <span className="stat-icon">
+                CV
+              </span>
+
+            </div>
+
+            <div className="stat-value">
+              {resumeScore}
+              <span>/100</span>
+            </div>
+
+            <div className="progress-track">
+
+              <div
+                className="progress-fill"
+                style={{
+                  width:
+                    `${Math.min(
+                      resumeScore,
+                      100
+                    )}%`,
+                }}
+              />
+
+            </div>
+
+            <p>
+              Resume quality
+            </p>
+
           </div>
 
-          <div className="dashboard-card">
-            <div className="card-icon">💼</div>
 
-            <h3>Job Matches</h3>
+          <div className="stat-card">
 
-            <h2>{jobRecommendations.length}</h2>
+            <div className="stat-card-top">
 
-            <p>Recommended jobs</p>
+              <span className="stat-label">
+                INTERVIEW SCORE
+              </span>
 
-            <button
-              className="card-button"
-              onClick={() => setActiveSection("jobs")}
-            >
-              View Jobs
-            </button>
-          </div>
+              <span className="stat-icon">
+                AI
+              </span>
 
-          <div className="dashboard-card">
-            <div className="card-icon">🎤</div>
+            </div>
 
-            <h3>Interview Score</h3>
+            <div className="stat-value">
+              {interviewScore}
+              <span>/100</span>
+            </div>
 
-            <h2>{interviewScore}/100</h2>
+            <div className="progress-track">
+
+              <div
+                className="progress-fill"
+                style={{
+                  width:
+                    `${Math.min(
+                      interviewScore,
+                      100
+                    )}%`,
+                }}
+              />
+
+            </div>
 
             <p>
               {questionsAnswered} questions answered
             </p>
 
+          </div>
+
+
+          <div className="stat-card">
+
+            <div className="stat-card-top">
+
+              <span className="stat-label">
+                JOB MATCHES
+              </span>
+
+              <span className="stat-icon">
+                #
+              </span>
+
+            </div>
+
+            <div className="stat-value">
+              {jobMatches}
+            </div>
+
+            <p>
+              Recommended opportunities
+            </p>
+
+          </div>
+
+        </div>
+
+
+        {/* MAIN GRID */}
+
+        <div className="main-dashboard-grid">
+
+          {/* CAREER READINESS */}
+
+          <div className="dashboard-card readiness-card">
+
+            <div className="card-header">
+
+              <div>
+
+                <span className="card-eyebrow">
+                  AI ANALYSIS
+                </span>
+
+                <h2>
+                  Career readiness
+                </h2>
+
+              </div>
+
+              <span className="ai-badge">
+                AI Powered
+              </span>
+
+            </div>
+
+
+            <div className="readiness-body">
+
+              <ScoreCircle
+                score={placementScore}
+                label="Placement readiness"
+              />
+
+
+              <div className="readiness-details">
+
+                <div className="readiness-item">
+
+                  <span>
+                    Resume
+                  </span>
+
+                  <strong>
+                    {resumeScore}/100
+                  </strong>
+
+                </div>
+
+
+                <div className="readiness-item">
+
+                  <span>
+                    Interview
+                  </span>
+
+                  <strong>
+                    {interviewScore}/100
+                  </strong>
+
+                </div>
+
+
+                <div className="readiness-item">
+
+                  <span>
+                    CGPA
+                  </span>
+
+                  <strong>
+                    {cgpa}
+                  </strong>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+          {/* PROFILE SUMMARY */}
+
+          <div className="dashboard-card">
+
+            <div className="card-header">
+
+              <div>
+
+                <span className="card-eyebrow">
+                  YOUR PROFILE
+                </span>
+
+                <h2>
+                  Career profile
+                </h2>
+
+              </div>
+
+            </div>
+
+
+            <div className="profile-summary">
+
+              <div className="profile-avatar">
+                {studentName
+                  .charAt(0)
+                  .toUpperCase()}
+              </div>
+
+              <div>
+
+                <h3>
+                  {studentName}
+                </h3>
+
+                <p>
+                  {targetRole}
+                </p>
+
+              </div>
+
+            </div>
+
+
+            <div className="profile-details">
+
+              <div>
+
+                <span>
+                  Branch
+                </span>
+
+                <strong>
+                  {student.branch || "-"}
+                </strong>
+
+              </div>
+
+
+              <div>
+
+                <span>
+                  CGPA
+                </span>
+
+                <strong>
+                  {cgpa}
+                </strong>
+
+              </div>
+
+            </div>
+
+
             <button
-              className="card-button"
+              className="secondary-button full-width"
               onClick={() =>
-                setActiveSection("interview")
+                setActiveSection("profile")
               }
             >
-              Practice
+              View Profile
             </button>
+
           </div>
 
         </div>
 
-        <div className="content-card">
-          <h2>Your Profile</h2>
 
-          <div className="profile-grid">
+        {/* RESUME */}
 
-            <div>
-              <span>Name</span>
-              <strong>{studentName}</strong>
-            </div>
+        <div className="dashboard-card resume-card">
+
+          <div className="card-header">
 
             <div>
-              <span>Email</span>
-              <strong>
-                {student.email || "Not provided"}
-              </strong>
-            </div>
 
-            <div>
-              <span>Branch</span>
-              <strong>
-                {student.branch || "Not provided"}
-              </strong>
-            </div>
+              <span className="card-eyebrow">
+                RESUME ANALYZER
+              </span>
 
-            <div>
-              <span>CGPA</span>
-              <strong>
-                {student.cgpa ?? "Not provided"}
-              </strong>
-            </div>
+              <h2>
+                Improve your resume
+              </h2>
 
-            <div>
-              <span>Target Role</span>
-              <strong>
-                {student.target_role ||
-                  "Not provided"}
-              </strong>
-            </div>
-
-            <div>
-              <span>Skills</span>
-              <strong>{skills}</strong>
-            </div>
-
-          </div>
-        </div>
-
-        <div className="content-card">
-          <h2>Career Readiness</h2>
-
-          <div className="progress-item">
-            <div className="progress-heading">
-              <span>Resume</span>
-              <span>{resumeScore}%</span>
-            </div>
-
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{
-                  width: `${Math.min(
-                    resumeScore,
-                    100
-                  )}%`,
-                }}
-              ></div>
-            </div>
-          </div>
-
-          <div className="progress-item">
-            <div className="progress-heading">
-              <span>Placement</span>
-              <span>{placementScore}%</span>
-            </div>
-
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{
-                  width: `${Math.min(
-                    placementScore,
-                    100
-                  )}%`,
-                }}
-              ></div>
-            </div>
-          </div>
-
-          <div className="progress-item">
-            <div className="progress-heading">
-              <span>Interview</span>
-              <span>{interviewScore}%</span>
-            </div>
-
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{
-                  width: `${Math.min(
-                    interviewScore,
-                    100
-                  )}%`,
-                }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="two-column-layout">
-
-          <div className="content-card">
-            <h2>💪 Strengths</h2>
-
-            {strengths.length > 0 ? (
-              <ul>
-                {strengths.map((item, index) => (
-                  <li key={index}>{item}</li>
-                ))}
-              </ul>
-            ) : (
               <p>
-                Your strengths will appear here.
+                Upload your latest resume and let
+                CareerGenAI analyze its quality.
               </p>
-            )}
+
+            </div>
+
+            <div className="resume-score-mini">
+
+              <strong>
+                {resumeScore}
+              </strong>
+
+              <span>
+                /100
+              </span>
+
+            </div>
+
           </div>
 
-          <div className="content-card">
-            <h2>🚀 Improvements</h2>
 
-            {suggestions.length > 0 ? (
-              <ul>
-                {suggestions.map((item, index) => (
-                  <li key={index}>{item}</li>
-                ))}
-              </ul>
-            ) : (
+          <div className="upload-area">
+
+            <div className="upload-icon">
+              ↑
+            </div>
+
+            <div>
+
+              <h3>
+                {resume.filename
+                  ? resume.filename
+                  : "Upload your resume"}
+              </h3>
+
               <p>
-                Upload your resume to get
-                personalized suggestions.
+                PDF files only
               </p>
-            )}
+
+            </div>
+
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              onChange={handleResumeUpload}
+              hidden
+            />
+
+
+            <button
+              className="primary-button"
+              onClick={() =>
+                fileInputRef.current?.click()
+              }
+              disabled={uploading}
+            >
+              {uploading
+                ? "Analyzing..."
+                : "Upload Resume"}
+            </button>
+
           </div>
 
-        </div>
-      </>
-    );
-  }
-
-  // -----------------------------
-  // PROFILE
-  // -----------------------------
-
-  function ProfileSection() {
-    return (
-      <>
-        <div className="section-header">
-          <h1>My Profile</h1>
-          <p>Your CareerGenAI profile</p>
-        </div>
-
-        <div className="content-card">
-          <div className="profile-grid">
-
-            <div>
-              <span>Name</span>
-              <strong>{studentName}</strong>
-            </div>
-
-            <div>
-              <span>Email</span>
-              <strong>
-                {student.email || "Not provided"}
-              </strong>
-            </div>
-
-            <div>
-              <span>Branch</span>
-              <strong>
-                {student.branch || "Not provided"}
-              </strong>
-            </div>
-
-            <div>
-              <span>CGPA</span>
-              <strong>
-                {student.cgpa ?? "Not provided"}
-              </strong>
-            </div>
-
-            <div>
-              <span>Target Role</span>
-              <strong>
-                {student.target_role ||
-                  "Not provided"}
-              </strong>
-            </div>
-
-            <div>
-              <span>Skills</span>
-              <strong>{skills}</strong>
-            </div>
-
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  // -----------------------------
-  // RESUME
-  // -----------------------------
-
-  function ResumeSection() {
-    return (
-      <>
-        <div className="section-header">
-          <h1>Resume Analysis</h1>
-          <p>
-            Upload your resume for AI analysis.
-          </p>
-        </div>
-
-        <div className="content-card">
-          <h2>📄 Upload Resume</h2>
-
-          <p>
-            Please upload your resume as a PDF.
-          </p>
-
-          <input
-            type="file"
-            accept=".pdf,application/pdf"
-            onChange={handleFileChange}
-          />
-
-          {selectedFile && (
-            <p>
-              Selected: {selectedFile.name}
-            </p>
-          )}
-
-          <button
-            className="primary-dashboard-button"
-            onClick={handleResumeUpload}
-            disabled={uploading}
-          >
-            {uploading
-              ? "Uploading..."
-              : "Upload Resume"}
-          </button>
 
           {uploadMessage && (
-            <p className="upload-message">
+            <div className="success-message">
               {uploadMessage}
-            </p>
-          )}
-        </div>
-
-        <div className="content-card">
-          <h2>Resume Score</h2>
-
-          <h1>{resumeScore}/100</h1>
-
-          {resumeScore > 0 ? (
-            <p>
-              Your resume has been analyzed.
-            </p>
-          ) : (
-            <p>
-              Upload your resume to receive a score.
-            </p>
-          )}
-        </div>
-      </>
-    );
-  }
-
-  // -----------------------------
-  // JOBS
-  // -----------------------------
-
-  function JobsSection() {
-    return (
-      <>
-        <div className="section-header">
-          <h1>Job Matches</h1>
-          <p>
-            Recommended jobs based on your profile.
-          </p>
-        </div>
-
-        <div className="content-card">
-
-          {jobRecommendations.length === 0 ? (
-            <div>
-              <h2>No job matches yet.</h2>
-
-              <p>
-                Complete your profile to receive
-                job recommendations.
-              </p>
             </div>
-          ) : (
-            jobRecommendations.map(
-              (job, index) => (
-                <div
-                  className="job-item"
-                  key={index}
-                >
-                  <h3>
-                    {job.title ||
-                      job.role ||
-                      "Recommended Job"}
-                  </h3>
-
-                  <p>
-                    {job.company ||
-                      "Company not specified"}
-                  </p>
-
-                  {job.location && (
-                    <p>{job.location}</p>
-                  )}
-
-                  {job.match_score && (
-                    <strong>
-                      {job.match_score}% Match
-                    </strong>
-                  )}
-                </div>
-              )
-            )
           )}
 
         </div>
-      </>
-    );
-  }
 
-  // -----------------------------
-  // INTERVIEW
-  // -----------------------------
 
-  function InterviewSection() {
-    return (
-      <>
-        <div className="section-header">
-          <h1>Interview Practice</h1>
+        {/* QUICK ACTIONS */}
 
-          <p>
-            Prepare for your interviews.
-          </p>
+        <div className="section-title">
+
+          <div>
+
+            <span className="card-eyebrow">
+              NEXT STEPS
+            </span>
+
+            <h2>
+              Continue your career journey
+            </h2>
+
+          </div>
+
         </div>
 
-        <div className="content-card">
-          <div className="card-icon">🎤</div>
 
-          <h2>Interview Score</h2>
-
-          <h1>{interviewScore}/100</h1>
-
-          <p>
-            Questions answered:{" "}
-            {questionsAnswered}
-          </p>
+        <div className="quick-actions-grid">
 
           <button
-            className="primary-dashboard-button"
-            onClick={() =>
-              setUploadMessage(
-                "Interview practice is ready."
-              )
-            }
-          >
-            Start Interview
-          </button>
-
-          {uploadMessage && (
-            <p className="upload-message">
-              {uploadMessage}
-            </p>
-          )}
-        </div>
-      </>
-    );
-  }
-
-  // -----------------------------
-  // MAIN PAGE
-  // -----------------------------
-
-  return (
-    <div className="career-dashboard">
-
-      <aside className="dashboard-sidebar">
-
-        <div className="sidebar-logo">
-          <h2>CareerGenAI</h2>
-          <span>AI Career Companion</span>
-        </div>
-
-        <nav className="sidebar-nav">
-
-          <button
-            className={
-              activeSection === "dashboard"
-                ? "active"
-                : ""
-            }
-            onClick={() =>
-              setActiveSection("dashboard")
-            }
-          >
-            🏠 Dashboard
-          </button>
-
-          <button
-            className={
-              activeSection === "profile"
-                ? "active"
-                : ""
-            }
-            onClick={() =>
-              setActiveSection("profile")
-            }
-          >
-            👤 Profile
-          </button>
-
-          <button
-            className={
-              activeSection === "resume"
-                ? "active"
-                : ""
-            }
+            className="action-card"
             onClick={() =>
               setActiveSection("resume")
             }
           >
-            📄 Resume
+
+            <span className="action-icon">
+              CV
+            </span>
+
+            <div>
+
+              <h3>
+                Analyze Resume
+              </h3>
+
+              <p>
+                Improve your resume score
+              </p>
+
+            </div>
+
+            <span className="action-arrow">
+              →
+            </span>
+
           </button>
 
+
           <button
-            className={
-              activeSection === "jobs"
-                ? "active"
-                : ""
-            }
+            className="action-card"
+            onClick={handleStartInterview}
+          >
+
+            <span className="action-icon">
+              AI
+            </span>
+
+            <div>
+
+              <h3>
+                Practice Interview
+              </h3>
+
+              <p>
+                Test your interview readiness
+              </p>
+
+            </div>
+
+            <span className="action-arrow">
+              →
+            </span>
+
+          </button>
+
+
+          <button
+            className="action-card"
             onClick={() =>
               setActiveSection("jobs")
             }
           >
-            💼 Jobs
+
+            <span className="action-icon">
+              JOB
+            </span>
+
+            <div>
+
+              <h3>
+                Explore Jobs
+              </h3>
+
+              <p>
+                Find suitable opportunities
+              </p>
+
+            </div>
+
+            <span className="action-arrow">
+              →
+            </span>
+
           </button>
+
+        </div>
+
+      </div>
+    );
+  }
+
+
+  /* =========================
+     PROFILE VIEW
+  ========================= */
+
+  function ProfileView() {
+    return (
+      <div className="dashboard-content">
+
+        <div className="page-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              PROFILE
+            </span>
+
+            <h1>
+              Your career profile
+            </h1>
+
+            <p>
+              Keep your career information up to date.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div className="profile-page-card">
+
+          <div className="profile-large">
+
+            <div className="profile-avatar large">
+              {studentName
+                .charAt(0)
+                .toUpperCase()}
+            </div>
+
+            <div>
+
+              <h2>
+                {studentName}
+              </h2>
+
+              <p>
+                {targetRole}
+              </p>
+
+            </div>
+
+          </div>
+
+
+          <div className="profile-info-grid">
+
+            <div className="info-box">
+
+              <span>
+                Email
+              </span>
+
+              <strong>
+                {student.email ||
+                  profile?.email ||
+                  "-"}
+              </strong>
+
+            </div>
+
+
+            <div className="info-box">
+
+              <span>
+                Branch
+              </span>
+
+              <strong>
+                {student.branch ||
+                  profile?.branch ||
+                  "-"}
+              </strong>
+
+            </div>
+
+
+            <div className="info-box">
+
+              <span>
+                CGPA
+              </span>
+
+              <strong>
+                {cgpa}
+              </strong>
+
+            </div>
+
+
+            <div className="info-box">
+
+              <span>
+                Target Role
+              </span>
+
+              <strong>
+                {targetRole}
+              </strong>
+
+            </div>
+
+          </div>
+
+
+          <div className="skills-section">
+
+            <span>
+              Skills
+            </span>
+
+            <div className="skills-list">
+
+              {Array.isArray(skills) &&
+              skills.length > 0 ? (
+
+                skills.map(
+                  (skill, index) => (
+
+                    <span
+                      className="skill-tag"
+                      key={index}
+                    >
+                      {skill}
+                    </span>
+
+                  )
+                )
+
+              ) : (
+
+                <span className="muted-text">
+                  No skills added
+                </span>
+
+              )}
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    );
+  }
+
+
+  /* =========================
+     RESUME VIEW
+  ========================= */
+
+  function ResumeView() {
+    return (
+      <div className="dashboard-content">
+
+        <div className="page-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              RESUME ANALYZER
+            </span>
+
+            <h1>
+              Optimize your resume
+            </h1>
+
+            <p>
+              Get an AI-powered assessment of your
+              resume.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div className="resume-page-grid">
+
+          <div className="dashboard-card resume-upload-large">
+
+            <div className="upload-icon large">
+              ↑
+            </div>
+
+            <h2>
+              Upload your resume
+            </h2>
+
+            <p>
+              Upload a PDF version of your resume
+              to analyze its structure, content and
+              career relevance.
+            </p>
+
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              onChange={handleResumeUpload}
+              hidden
+            />
+
+
+            <button
+              className="primary-button"
+              onClick={() =>
+                fileInputRef.current?.click()
+              }
+              disabled={uploading}
+            >
+              {uploading
+                ? "Analyzing Resume..."
+                : "Choose PDF Resume"}
+            </button>
+
+
+            {uploadMessage && (
+              <div className="success-message">
+                {uploadMessage}
+              </div>
+            )}
+
+          </div>
+
+
+          <div className="dashboard-card">
+
+            <span className="card-eyebrow">
+              CURRENT SCORE
+            </span>
+
+            <h2>
+              Resume quality
+            </h2>
+
+            <div className="large-score">
+
+              {resumeScore}
+
+              <span>
+                /100
+              </span>
+
+            </div>
+
+            <div className="progress-track">
+
+              <div
+                className="progress-fill"
+                style={{
+                  width:
+                    `${Math.min(
+                      resumeScore,
+                      100
+                    )}%`,
+                }}
+              />
+
+            </div>
+
+            <p className="card-description">
+              Upload a newer version to refresh
+              your analysis.
+            </p>
+
+          </div>
+
+        </div>
+
+      </div>
+    );
+  }
+
+
+  /* =========================
+     JOBS VIEW
+  ========================= */
+
+  function JobsView() {
+
+    const jobList =
+      Array.isArray(jobs.items)
+        ? jobs.items
+        : Array.isArray(jobs.matches)
+          ? jobs.matches
+          : [];
+
+
+    return (
+      <div className="dashboard-content">
+
+        <div className="page-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              JOB MATCHES
+            </span>
+
+            <h1>
+              Opportunities for you
+            </h1>
+
+            <p>
+              Career opportunities matched to your
+              profile.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        {jobList.length > 0 ? (
+
+          <div className="jobs-grid">
+
+            {jobList.map(
+              (job, index) => (
+
+                <div
+                  className="job-card"
+                  key={
+                    job.id ||
+                    index
+                  }
+                >
+
+                  <div className="job-card-top">
+
+                    <div className="company-logo">
+
+                      {(
+                        job.company ||
+                        "C"
+                      )
+                        .charAt(0)
+                        .toUpperCase()}
+
+                    </div>
+
+                    <span className="match-badge">
+
+                      {job.match_score ||
+                        job.match ||
+                        "Match"}
+
+                    </span>
+
+                  </div>
+
+
+                  <h3>
+                    {job.title ||
+                      job.role ||
+                      "Career Opportunity"}
+                  </h3>
+
+                  <p>
+                    {job.company ||
+                      "Company"}
+                  </p>
+
+
+                  <div className="job-meta">
+
+                    {job.location && (
+                      <span>
+                        {job.location}
+                      </span>
+                    )}
+
+                    {job.type && (
+                      <span>
+                        {job.type}
+                      </span>
+                    )}
+
+                  </div>
+
+
+                  <button className="secondary-button full-width">
+                    View Opportunity
+                  </button>
+
+                </div>
+
+              )
+            )}
+
+          </div>
+
+        ) : (
+
+          <div className="empty-state">
+
+            <div className="empty-icon">
+              JOB
+            </div>
+
+            <h2>
+              No job matches available yet
+            </h2>
+
+            <p>
+              Complete your profile and resume
+              analysis to receive better matches.
+            </p>
+
+          </div>
+
+        )}
+
+      </div>
+    );
+  }
+
+
+  /* =========================
+     INTERVIEW VIEW
+  ========================= */
+
+  function InterviewView() {
+
+    /* =========================
+       COMPLETED INTERVIEW
+    ========================= */
+
+    if (interviewFinished) {
+
+      const total =
+        interviewScores.reduce(
+          (sum, score) =>
+            sum + Number(score),
+          0
+        );
+
+      const finalScore =
+        interviewScores.length
+          ? Math.round(
+              total /
+              interviewScores.length
+            )
+          : 0;
+
+
+      return (
+        <div className="dashboard-content">
+
+          <div className="interview-complete">
+
+            <div className="complete-icon">
+              ✓
+            </div>
+
+            <span className="eyebrow">
+              INTERVIEW COMPLETE
+            </span>
+
+            <h1>
+              Great work,{" "}
+              {studentName.split(" ")[0]}.
+            </h1>
+
+            <p>
+              Your interview performance has been
+              recorded.
+            </p>
+
+
+            <div className="final-score">
+
+              <strong>
+                {finalScore}
+              </strong>
+
+              <span>
+                /100
+              </span>
+
+            </div>
+
+
+            <div className="interview-summary">
+
+              <div>
+
+                <span>
+                  Questions
+                </span>
+
+                <strong>
+                  {interviewScores.length}
+                </strong>
+
+              </div>
+
+
+              <div>
+
+                <span>
+                  Average score
+                </span>
+
+                <strong>
+                  {finalScore}/100
+                </strong>
+
+              </div>
+
+            </div>
+
+
+            <button
+              className="primary-button"
+              onClick={() => {
+
+                setInterviewFinished(false);
+                setInterviewStarted(false);
+
+                setInterviewQuestions([]);
+
+                setInterviewScores([]);
+
+                setCurrentQuestionIndex(0);
+
+                setCurrentAnswer("");
+
+                setLastEvaluation(null);
+
+                setInterviewMessage("");
+
+              }}
+            >
+              Practice Again
+            </button>
+
+          </div>
+
+        </div>
+      );
+    }
+
+
+    const currentQuestion =
+      interviewQuestions[
+        currentQuestionIndex
+      ];
+
+    const questionText =
+      getQuestionText(
+        currentQuestion
+      );
+
+    const category =
+      getQuestionCategory(
+        currentQuestion
+      );
+
+
+    return (
+      <div className="dashboard-content">
+
+        <div className="page-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              AI INTERVIEW
+            </span>
+
+            <h1>
+              Interview practice
+            </h1>
+
+            <p>
+              Practice answering questions tailored
+              to your target role.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        {!interviewStarted ? (
+
+          /* =========================
+             INTERVIEW START SCREEN
+          ========================= */
+
+          <div className="interview-start-card">
+
+            <div className="interview-hero-icon">
+              AI
+            </div>
+
+            <span className="eyebrow">
+              AI-POWERED PRACTICE
+            </span>
+
+            <h2>
+              Ready for your interview?
+            </h2>
+
+            <p>
+              CareerGenAI will ask you role-specific
+              interview questions and evaluate your
+              answers.
+            </p>
+
+
+            <div className="interview-benefits">
+
+              <div>
+
+                <span>
+                  01
+                </span>
+
+                <p>
+                  Role-specific questions
+                </p>
+
+              </div>
+
+
+              <div>
+
+                <span>
+                  02
+                </span>
+
+                <p>
+                  AI answer evaluation
+                </p>
+
+              </div>
+
+
+              <div>
+
+                <span>
+                  03
+                </span>
+
+                <p>
+                  Performance score
+                </p>
+
+              </div>
+
+            </div>
+
+
+            <button
+              className="primary-button large-button"
+              onClick={handleStartInterview}
+              disabled={interviewLoading}
+            >
+              {interviewLoading
+                ? "Preparing Interview..."
+                : "Start Interview"}
+            </button>
+
+
+            {interviewMessage && (
+              <div className="error-message">
+                {interviewMessage}
+              </div>
+            )}
+
+          </div>
+
+        ) : (
+
+          /* =========================
+             INTERVIEW WORKSPACE
+          ========================= */
+
+          <div className="interview-workspace">
+
+            <div className="interview-progress">
+
+              <div>
+
+                <span>
+                  QUESTION
+                </span>
+
+                <strong>
+                  {currentQuestionIndex + 1}
+                  {" "}
+                  /
+                  {" "}
+                  {interviewQuestions.length}
+                </strong>
+
+              </div>
+
+
+              <div className="question-progress-track">
+
+                <div
+                  className="question-progress-fill"
+                  style={{
+                    width:
+                      `${
+                        (
+                          (
+                            currentQuestionIndex + 1
+                          ) /
+                          interviewQuestions.length
+                        ) *
+                        100
+                      }%`,
+                  }}
+                />
+
+              </div>
+
+            </div>
+
+
+            <div className="interview-question-card">
+
+              <span className="question-category">
+                {category}
+              </span>
+
+
+              <h2>
+                {questionText}
+              </h2>
+
+
+              {/* =========================
+                  FIXED ANSWER TEXTAREA
+              ========================= */}
+
+              <textarea
+                ref={answerInputRef}
+                value={currentAnswer}
+                onChange={(event) => {
+                  /*
+                    IMPORTANT:
+                    Only update the answer.
+                    Do not change activeSection,
+                    question index, or interview state.
+                  */
+                  setCurrentAnswer(
+                    event.target.value
+                  );
+                }}
+                placeholder="Type your answer here..."
+                rows={8}
+                autoComplete="off"
+                spellCheck={true}
+              />
+
+
+              {lastEvaluation && (
+                <div className="evaluation-box">
+
+                  <strong>
+                    Previous answer evaluated
+                  </strong>
+
+                  <p>
+                    Score:{" "}
+                    {
+                      lastEvaluation.score ??
+                      lastEvaluation.overall_score ??
+                      0
+                    }
+                    /100
+                  </p>
+
+                </div>
+              )}
+
+
+              {interviewMessage && (
+                <div className="error-message">
+                  {interviewMessage}
+                </div>
+              )}
+
+
+              <div className="interview-actions">
+
+                <span>
+                  Take your time and answer clearly.
+                </span>
+
+
+                <button
+                  className="primary-button"
+                  onClick={handleSubmitAnswer}
+                  disabled={
+                    interviewLoading ||
+                    !currentAnswer.trim()
+                  }
+                >
+                  {interviewLoading
+                    ? "Evaluating..."
+                    : currentQuestionIndex ===
+                      interviewQuestions.length - 1
+                      ? "Finish Interview"
+                      : "Submit & Continue"}
+                </button>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        )}
+
+      </div>
+    );
+  }
+
+
+  /* =========================
+     MAIN
+  ========================= */
+
+  return (
+    <div className="career-app">
+
+      {/* =========================
+          SIDEBAR
+      ========================= */}
+
+      <aside className="sidebar">
+
+        <div className="brand">
+
+          <div className="brand-mark">
+            C
+          </div>
+
+          <div>
+
+            <strong>
+              CareerGenAI
+            </strong>
+
+            <span>
+              Career Intelligence
+            </span>
+
+          </div>
+
+        </div>
+
+
+        <div className="sidebar-section">
+
+          <span className="sidebar-label">
+            WORKSPACE
+          </span>
+
+
+          <NavigationItem
+            id="dashboard"
+            icon="⌂"
+            label="Dashboard"
+          />
+
+
+          <NavigationItem
+            id="profile"
+            icon="○"
+            label="Profile"
+          />
+
+
+          <NavigationItem
+            id="resume"
+            icon="▤"
+            label="Resume"
+          />
+
+
+          <NavigationItem
+            id="jobs"
+            icon="▣"
+            label="Job Matches"
+          />
+
+
+          <NavigationItem
+            id="interview"
+            icon="◉"
+            label="Interview"
+          />
+
+        </div>
+
+
+        <div className="sidebar-bottom">
+
+          <div className="sidebar-user">
+
+            <div className="sidebar-avatar">
+
+              {studentName
+                .charAt(0)
+                .toUpperCase()}
+
+            </div>
+
+            <div>
+
+              <strong>
+                {studentName}
+              </strong>
+
+              <span>
+                {targetRole}
+              </span>
+
+            </div>
+
+          </div>
+
 
           <button
-            className={
-              activeSection === "interview"
-                ? "active"
-                : ""
-            }
-            onClick={() =>
-              setActiveSection("interview")
-            }
+            className="logout-button"
+            onClick={logoutStudent}
           >
-            🎤 Interview
+
+            <span>
+              ↪
+            </span>
+
+            Logout
+
           </button>
 
-        </nav>
-
-        <button
-          className="sidebar-logout"
-          onClick={handleLogout}
-        >
-          Logout
-        </button>
+        </div>
 
       </aside>
 
-      <main className="dashboard-main">
 
-        {activeSection === "dashboard" && (
-          <HomeSection />
-        )}
+      {/* =========================
+          MAIN AREA
+      ========================= */}
 
-        {activeSection === "profile" && (
-          <ProfileSection />
-        )}
+      <main className="main-area">
 
-        {activeSection === "resume" && (
-          <ResumeSection />
-        )}
+        <header className="topbar">
 
-        {activeSection === "jobs" && (
-          <JobsSection />
-        )}
+          <div className="mobile-brand">
+            CareerGenAI
+          </div>
 
-        {activeSection === "interview" && (
-          <InterviewSection />
-        )}
+          <div className="topbar-spacer"></div>
+
+
+          <div className="topbar-profile">
+
+            <div className="topbar-avatar">
+
+              {studentName
+                .charAt(0)
+                .toUpperCase()}
+
+            </div>
+
+
+            <div className="topbar-user">
+
+              <strong>
+                {studentName}
+              </strong>
+
+              <span>
+                {targetRole}
+              </span>
+
+            </div>
+
+          </div>
+
+        </header>
+
+
+        {activeSection === "dashboard" &&
+          <DashboardView />
+        }
+
+
+        {activeSection === "profile" &&
+          <ProfileView />
+        }
+
+
+        {activeSection === "resume" &&
+          <ResumeView />
+        }
+
+
+        {activeSection === "jobs" &&
+          <JobsView />
+        }
+
+
+        {/*
+          IMPORTANT FIX:
+
+          DO NOT use:
+
+          <InterviewView />
+
+          because InterviewView is declared inside
+          Dashboard().
+
+          Calling it directly prevents React from
+          remounting the textarea every time
+          currentAnswer changes.
+        */}
+
+        {activeSection === "interview" &&
+          InterviewView()
+        }
 
       </main>
 
     </div>
   );
 }
+
 
 export default Dashboard;

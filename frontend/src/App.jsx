@@ -1,1033 +1,930 @@
-import { useState } from "react";
-import "./App.css";
-import {
-  loginUser,
-  registerUser,
-  logoutUser,
-} from "./api";
+import React, { useState } from "react";
+
 import Dashboard from "./Dashboard";
+
+import {
+  loginStudent,
+  registerStudent,
+} from "./api";
+
+import "./App.css";
 
 
 function App() {
 
-  // ==========================================
-  // LOGIN STATUS
-  // ==========================================
+  const [page, setPage] =
+    useState("landing");
 
-  const [isLoggedIn, setIsLoggedIn] = useState(
-    !!localStorage.getItem("access_token")
-  );
+  const [loading, setLoading] =
+    useState(false);
 
+  const [error, setError] =
+    useState("");
 
-  // ==========================================
-  // MODAL
-  // ==========================================
-
-  const [showAuth, setShowAuth] = useState(false);
-
-  const [authMode, setAuthMode] = useState("login");
+  const [success, setSuccess] =
+    useState("");
 
 
-  // ==========================================
-  // LOGIN DATA
-  // ==========================================
+  /* =========================
+     LOGIN
+  ========================= */
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-
-  // ==========================================
-  // REGISTER DATA
-  // ==========================================
-
-  const [name, setName] = useState("");
-  const [branch, setBranch] = useState("");
-  const [cgpa, setCgpa] = useState("");
-  const [targetRole, setTargetRole] = useState("");
-  const [skills, setSkills] = useState("");
+  const [loginForm, setLoginForm] =
+    useState({
+      email: "",
+      password: "",
+    });
 
 
-  // ==========================================
-  // STATUS
-  // ==========================================
+  /* =========================
+     REGISTER
+  ========================= */
 
-  const [authError, setAuthError] = useState("");
-  const [authSuccess, setAuthSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
-
-
-  // ==========================================
-  // OPEN LOGIN
-  // ==========================================
-
-  const openLogin = () => {
-    setAuthMode("login");
-    setAuthError("");
-    setAuthSuccess("");
-    setShowAuth(true);
-  };
+  const [registerForm, setRegisterForm] =
+    useState({
+      name: "",
+      email: "",
+      password: "",
+      branch: "",
+      cgpa: "",
+      target_role: "",
+      skills: "",
+    });
 
 
-  // ==========================================
-  // OPEN REGISTER
-  // ==========================================
-
-  const openRegister = () => {
-    setAuthMode("register");
-    setAuthError("");
-    setAuthSuccess("");
-    setShowAuth(true);
-  };
+  function updateLogin(field, value) {
+    setLoginForm({
+      ...loginForm,
+      [field]: value,
+    });
+  }
 
 
-  // ==========================================
-  // CLOSE AUTH
-  // ==========================================
-
-  const closeAuth = () => {
-
-    if (loading) {
-      return;
-    }
-
-    setShowAuth(false);
-    setAuthError("");
-    setAuthSuccess("");
-  };
+  function updateRegister(field, value) {
+    setRegisterForm({
+      ...registerForm,
+      [field]: value,
+    });
+  }
 
 
-  // ==========================================
-  // LOGIN
-  // ==========================================
+  /* =========================
+     LOGIN SUBMIT
+  ========================= */
 
-  const handleLogin = async (e) => {
+  async function handleLogin(event) {
 
-    e.preventDefault();
+    event.preventDefault();
 
-    setAuthError("");
-    setAuthSuccess("");
-    setLoading(true);
+    setError("");
+    setSuccess("");
 
     try {
 
-      const data = await loginUser(
-        email.trim(),
-        password
-      );
+      setLoading(true);
 
-      console.log("Login successful:", data);
+      const result =
+        await loginStudent(loginForm);
+
+
+      const token =
+        result.access_token ||
+        result.token;
+
+
+      if (!token) {
+        throw new Error(
+          "Login successful, but no token was returned."
+        );
+      }
+
 
       localStorage.setItem(
-        "access_token",
-        data.access_token
+        "token",
+        token
       );
+
 
       localStorage.setItem(
-        "student_id",
-        data.student_id
+        "student",
+        JSON.stringify(result)
       );
 
-      setEmail("");
-      setPassword("");
 
-      setShowAuth(false);
+      setPage("dashboard");
 
-      setIsLoggedIn(true);
+    } catch (err) {
 
-    } catch (error) {
+      console.error(err);
 
-      console.error("Login error:", error);
-
-      setAuthError(
-        error.message || "Invalid email or password."
+      setError(
+        err.message ||
+        "Login failed."
       );
 
     } finally {
 
       setLoading(false);
+
     }
-  };
+  }
 
 
-  // ==========================================
-  // REGISTER
-  // ==========================================
+  /* =========================
+     REGISTER SUBMIT
+  ========================= */
 
-  const handleRegister = async (e) => {
+  async function handleRegister(event) {
 
-    e.preventDefault();
+    event.preventDefault();
 
-    setAuthError("");
-    setAuthSuccess("");
-    setLoading(true);
+    setError("");
+    setSuccess("");
 
     try {
 
-      const userData = {
-        name: name.trim(),
-        email: email.trim(),
-        password: password,
-        branch: branch.trim(),
-        cgpa: cgpa ? Number(cgpa) : null,
-        target_role: targetRole.trim(),
-        skills: skills.trim(),
+      setLoading(true);
+
+
+      const payload = {
+        ...registerForm,
+
+        cgpa:
+          registerForm.cgpa
+            ? Number(registerForm.cgpa)
+            : 0,
+
+        skills:
+          registerForm.skills
+            .split(",")
+            .map(
+              (skill) =>
+                skill.trim()
+            )
+            .filter(Boolean),
       };
 
-      const data = await registerUser(userData);
 
-      console.log("Registration successful:", data);
-
-      setAuthSuccess(
-        "Account created successfully! Please login."
+      await registerStudent(
+        payload
       );
 
-      // Clear registration fields
-      setName("");
-      setBranch("");
-      setCgpa("");
-      setTargetRole("");
-      setSkills("");
-      setPassword("");
 
-      // Automatically switch to login
+      setSuccess(
+        "Account created successfully. Please sign in."
+      );
+
+
+      setRegisterForm({
+        name: "",
+        email: "",
+        password: "",
+        branch: "",
+        cgpa: "",
+        target_role: "",
+        skills: "",
+      });
+
+
       setTimeout(() => {
-        setAuthMode("login");
-        setAuthSuccess("");
-      }, 1200);
+        setPage("login");
+        setSuccess("");
+      }, 1000);
 
-    } catch (error) {
 
-      console.error("Registration error:", error);
+    } catch (err) {
 
-      setAuthError(
-        error.message || "Unable to create account."
+      console.error(err);
+
+      setError(
+        err.message ||
+        "Registration failed."
       );
 
     } finally {
 
       setLoading(false);
+
     }
-  };
+  }
 
 
-  // ==========================================
-  // LOGOUT
-  // ==========================================
+  /* =========================
+     IF LOGGED IN
+  ========================= */
 
-  const handleLogout = () => {
+  if (
+    localStorage.getItem("token") &&
+    page === "dashboard"
+  ) {
+    return <Dashboard />;
+  }
 
-    logoutUser();
 
-    setIsLoggedIn(false);
-    setShowAuth(false);
-  };
+  /* =========================
+     LANDING PAGE
+  ========================= */
 
-
-  // ==========================================
-  // SHOW DASHBOARD
-  // ==========================================
-
-  if (isLoggedIn) {
+  if (page === "landing") {
 
     return (
-      <Dashboard
-        onLogout={handleLogout}
-      />
+      <div className="landing-page">
+
+        <nav className="landing-nav">
+
+          <div className="landing-brand">
+
+            <div className="landing-logo">
+              C
+            </div>
+
+            <div>
+              <strong>
+                CareerGenAI
+              </strong>
+
+              <span>
+                Career Intelligence
+              </span>
+            </div>
+
+          </div>
+
+
+          <div className="landing-nav-actions">
+
+            <button
+              onClick={() =>
+                setPage("login")
+              }
+            >
+              Sign in
+            </button>
+
+            <button
+              className="nav-primary"
+              onClick={() =>
+                setPage("register")
+              }
+            >
+              Get started
+            </button>
+
+          </div>
+
+        </nav>
+
+
+        <section className="hero">
+
+          <div className="hero-content">
+
+            <span className="hero-eyebrow">
+              AI-POWERED CAREER PLATFORM
+            </span>
+
+            <h1>
+              Build a career
+              <br />
+
+              <span>
+                with confidence.
+              </span>
+            </h1>
+
+            <p>
+              CareerGenAI helps students understand
+              their career readiness, improve their
+              resumes, practice interviews and discover
+              relevant opportunities.
+            </p>
+
+
+            <div className="hero-actions">
+
+              <button
+                className="hero-primary"
+                onClick={() =>
+                  setPage("register")
+                }
+              >
+                Start your journey
+                <span>→</span>
+              </button>
+
+
+              <button
+                className="hero-secondary"
+                onClick={() =>
+                  setPage("login")
+                }
+              >
+                I already have an account
+              </button>
+
+            </div>
+
+
+            <div className="hero-trust">
+
+              <div>
+                <strong>
+                  AI
+                </strong>
+
+                <span>
+                  Career insights
+                </span>
+              </div>
+
+              <div>
+                <strong>
+                  24/7
+                </strong>
+
+                <span>
+                  Interview practice
+                </span>
+              </div>
+
+              <div>
+                <strong>
+                  360°
+                </strong>
+
+                <span>
+                  Career readiness
+                </span>
+              </div>
+
+            </div>
+
+          </div>
+
+
+          <div className="hero-visual">
+
+            <div className="dashboard-preview">
+
+              <div className="preview-top">
+
+                <div>
+                  <span>
+                    CAREER READINESS
+                  </span>
+
+                  <strong>
+                    Your AI overview
+                  </strong>
+                </div>
+
+                <div className="preview-dot">
+                  •
+                </div>
+
+              </div>
+
+
+              <div className="preview-score">
+
+                <div className="preview-circle">
+                  <strong>
+                    78
+                  </strong>
+
+                  <span>
+                    /100
+                  </span>
+                </div>
+
+                <div>
+                  <small>
+                    PLACEMENT SCORE
+                  </small>
+
+                  <h3>
+                    Good progress
+                  </h3>
+
+                  <p>
+                    Keep improving your resume
+                    and interview performance.
+                  </p>
+                </div>
+
+              </div>
+
+
+              <div className="preview-cards">
+
+                <div>
+                  <small>
+                    RESUME
+                  </small>
+
+                  <strong>
+                    82
+                  </strong>
+                </div>
+
+                <div>
+                  <small>
+                    INTERVIEW
+                  </small>
+
+                  <strong>
+                    74
+                  </strong>
+                </div>
+
+                <div>
+                  <small>
+                    MATCHES
+                  </small>
+
+                  <strong>
+                    12
+                  </strong>
+                </div>
+
+              </div>
+
+
+              <div className="preview-line">
+
+                <span>
+                  Career readiness
+                </span>
+
+                <div>
+                  <i />
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <section className="features">
+
+          <div className="section-heading">
+
+            <span>
+              EVERYTHING IN ONE PLACE
+            </span>
+
+            <h2>
+              A smarter way to prepare for your career.
+            </h2>
+
+          </div>
+
+
+          <div className="feature-grid">
+
+            <div className="feature-card">
+
+              <span>
+                01
+              </span>
+
+              <h3>
+                Resume Intelligence
+              </h3>
+
+              <p>
+                Analyze your resume and understand
+                how effectively it represents your
+                skills and career goals.
+              </p>
+
+            </div>
+
+
+            <div className="feature-card">
+
+              <span>
+                02
+              </span>
+
+              <h3>
+                AI Interview Practice
+              </h3>
+
+              <p>
+                Practice role-specific questions and
+                receive structured feedback on your
+                answers.
+              </p>
+
+            </div>
+
+
+            <div className="feature-card">
+
+              <span>
+                03
+              </span>
+
+              <h3>
+                Career Opportunities
+              </h3>
+
+              <p>
+                Discover job opportunities aligned
+                with your profile, skills and target
+                role.
+              </p>
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <footer className="landing-footer">
+          © 2026 CareerGenAI. Built for ambitious students.
+        </footer>
+
+      </div>
     );
   }
 
 
-  // ==========================================
-  // LANDING PAGE
-  // ==========================================
+  /* =========================
+     AUTH PAGE
+  ========================= */
 
   return (
+    <div className="auth-page">
 
-    <div className="app">
+      <div className="auth-brand">
 
+        <button
+          onClick={() =>
+            setPage("landing")
+          }
+        >
+          ← CareerGenAI
+        </button>
 
-      {/* ======================================
-          NAVBAR
-      ====================================== */}
-
-      <nav className="navbar">
-
-        <div className="logo">
-          Career<span>GenAI</span>
-        </div>
-
-
-        <div className="nav-links">
-
-          <a href="#home">
-            Home
-          </a>
-
-          <a href="#features">
-            Features
-          </a>
-
-          <a href="#about">
-            About
-          </a>
-
-          <button
-            className="nav-login-button"
-            onClick={openLogin}
-          >
-            Login
-          </button>
-
-        </div>
-
-      </nav>
+      </div>
 
 
-      {/* ======================================
-          HERO
-      ====================================== */}
+      <div className="auth-container">
 
-      <section
-        className="hero"
-        id="home"
-      >
+        <div className="auth-info">
 
-        <div className="hero-content">
-
-          <div className="hero-badge">
-            ✦ AI-POWERED CAREER PLATFORM
-          </div>
+          <span>
+            CAREER INTELLIGENCE
+          </span>
 
           <h1>
-            Build Your Career
-            <br />
-            With <span>AI</span>
+            Turn your potential
+            into a plan.
           </h1>
 
-          <p className="hero-description">
-            CareerGenAI helps students analyze their
-            resumes, discover suitable jobs, prepare
-            for interviews, and understand their
-            career readiness.
+          <p>
+            Build a stronger resume, practice
+            interviews and understand your
+            career readiness with one intelligent
+            platform.
           </p>
-
-
-          <div className="hero-buttons">
-
-            <button
-              className="primary-button"
-              onClick={openRegister}
-            >
-              Get Started
-              <span>→</span>
-            </button>
-
-            <button
-              className="secondary-button"
-              onClick={openLogin}
-            >
-              Already have an account?
-              <span>Login</span>
-            </button>
-
-          </div>
 
         </div>
 
 
-        {/* HERO VISUAL */}
+        <div className="auth-card">
 
-        <div className="hero-visual">
+          {page === "login" ? (
 
-          <div className="dashboard-preview">
-
-            <div className="preview-header">
-
-              <div>
-                <small>
-                  CAREER READINESS
-                </small>
-
-                <h3>
-                  Your Career Overview
-                </h3>
-              </div>
-
-              <div className="preview-avatar">
-                CG
-              </div>
-
-            </div>
-
-
-            <div className="preview-score">
-
-              <div>
+            <>
+              <div className="auth-heading">
 
                 <span>
-                  Placement Score
+                  WELCOME BACK
                 </span>
 
-                <strong>
-                  85
-                  <small>/100</small>
-                </strong>
-
-              </div>
-
-              <div className="score-ring">
-                85%
-              </div>
-
-            </div>
-
-
-            <div className="preview-cards">
-
-              <div>
-                <span>📄</span>
-                <strong>Resume</strong>
-                <small>Excellent</small>
-              </div>
-
-              <div>
-                <span>🎤</span>
-                <strong>Interview</strong>
-                <small>Good</small>
-              </div>
-
-              <div>
-                <span>💼</span>
-                <strong>Jobs</strong>
-                <small>3 Matches</small>
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </section>
-
-
-      {/* ======================================
-          FEATURES
-      ====================================== */}
-
-      <section
-        className="features-section"
-        id="features"
-      >
-
-        <div className="section-heading">
-
-          <div className="section-label">
-            FEATURES
-          </div>
-
-          <h2>
-            Everything You Need
-            <br />
-            <span>To Build Your Career</span>
-          </h2>
-
-          <p>
-            One intelligent platform to help you
-            become placement-ready.
-          </p>
-
-        </div>
-
-
-        <div className="features-grid">
-
-          <div className="feature-card">
-
-            <div className="feature-icon purple">
-              📄
-            </div>
-
-            <h3>
-              Resume Analyzer
-            </h3>
-
-            <p>
-              Upload your resume and receive an
-              AI-powered score with useful
-              improvement suggestions.
-            </p>
-
-          </div>
-
-
-          <div className="feature-card">
-
-            <div className="feature-icon blue">
-              🎯
-            </div>
-
-            <h3>
-              Placement Score
-            </h3>
-
-            <p>
-              Understand your career readiness
-              through an intelligent placement score.
-            </p>
-
-          </div>
-
-
-          <div className="feature-card">
-
-            <div className="feature-icon green">
-              💼
-            </div>
-
-            <h3>
-              Job Recommendations
-            </h3>
-
-            <p>
-              Discover opportunities based on your
-              skills and target career role.
-            </p>
-
-          </div>
-
-
-          <div className="feature-card">
-
-            <div className="feature-icon orange">
-              🎤
-            </div>
-
-            <h3>
-              AI Interview
-            </h3>
-
-            <p>
-              Practice interview questions and
-              understand your performance.
-            </p>
-
-          </div>
-
-        </div>
-
-      </section>
-
-
-      {/* ======================================
-          ABOUT
-      ====================================== */}
-
-      <section
-        className="about-section"
-        id="about"
-      >
-
-        <div className="about-box">
-
-          <div className="about-content">
-
-            <div className="section-label">
-              ABOUT CAREERGENAI
-            </div>
-
-            <h2>
-              Your Personal
-              <br />
-              <span>AI Career Companion</span>
-            </h2>
-
-            <p>
-              CareerGenAI is designed to help students
-              understand where they currently stand
-              and what they should do next to become
-              placement-ready.
-            </p>
-
-            <p>
-              From resume analysis to job recommendations
-              and interview preparation, everything is
-              brought together in one intelligent platform.
-            </p>
-
-          </div>
-
-
-          <div className="about-stat">
-
-            <div>
-              <strong>
-                AI
-              </strong>
-
-              <span>
-                Powered
-              </span>
-            </div>
-
-            <div>
-              <strong>
-                24/7
-              </strong>
-
-              <span>
-                Career Support
-              </span>
-            </div>
-
-            <div>
-              <strong>
-                360°
-              </strong>
-
-              <span>
-                Career Analysis
-              </span>
-            </div>
-
-          </div>
-
-        </div>
-
-      </section>
-
-
-      {/* ======================================
-          FOOTER
-      ====================================== */}
-
-      <footer>
-
-        <div className="footer-logo">
-          Career<span>GenAI</span>
-        </div>
-
-        <p>
-          Your AI-powered career companion.
-        </p>
-
-        <small>
-          © 2026 CareerGenAI. All rights reserved.
-        </small>
-
-      </footer>
-
-
-      {/* ======================================
-          AUTH MODAL
-      ====================================== */}
-
-      {showAuth && (
-
-        <div
-          className="auth-overlay"
-          onClick={closeAuth}
-        >
-
-          <div
-            className="auth-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
-
-            {/* CLOSE */}
-
-            <button
-              className="auth-close"
-              onClick={closeAuth}
-              disabled={loading}
-            >
-              ×
-            </button>
-
-
-            {/* LEFT SIDE */}
-
-            <div className="auth-info">
-
-              <div className="auth-brand">
-                Career<span>GenAI</span>
-              </div>
-
-              <div className="auth-info-content">
-
-                <div className="auth-big-icon">
-                  {authMode === "login" ? "✦" : "🚀"}
-                </div>
-
                 <h2>
-                  {authMode === "login"
-                    ? "Welcome Back"
-                    : "Start Your Journey"}
+                  Sign in to CareerGenAI
                 </h2>
 
                 <p>
-                  {authMode === "login"
-                    ? "Continue building your career with AI-powered insights."
-                    : "Create your free account and take the next step toward your dream career."}
+                  Continue your career journey.
                 </p>
-
-                <div className="auth-points">
-
-                  <div>
-                    ✓ AI Resume Analysis
-                  </div>
-
-                  <div>
-                    ✓ Personalized Job Matches
-                  </div>
-
-                  <div>
-                    ✓ Interview Preparation
-                  </div>
-
-                  <div>
-                    ✓ Career Readiness Score
-                  </div>
-
-                </div>
 
               </div>
 
-            </div>
+
+              <form
+                onSubmit={handleLogin}
+              >
+
+                <label>
+                  Email
+
+                  <input
+                    type="email"
+                    value={loginForm.email}
+                    onChange={(event) =>
+                      updateLogin(
+                        "email",
+                        event.target.value
+                      )
+                    }
+                    placeholder="you@example.com"
+                    required
+                  />
+
+                </label>
 
 
-            {/* RIGHT SIDE */}
+                <label>
+                  Password
 
-            <div className="auth-form-area">
+                  <input
+                    type="password"
+                    value={loginForm.password}
+                    onChange={(event) =>
+                      updateLogin(
+                        "password",
+                        event.target.value
+                      )
+                    }
+                    placeholder="Enter your password"
+                    required
+                  />
 
-              <div className="auth-form-header">
+                </label>
+
+
+                {error && (
+                  <div className="auth-error">
+                    {error}
+                  </div>
+                )}
+
+
+                {success && (
+                  <div className="auth-success">
+                    {success}
+                  </div>
+                )}
+
+
+                <button
+                  className="auth-submit"
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading
+                    ? "Signing in..."
+                    : "Sign in"}
+                </button>
+
+              </form>
+
+
+              <div className="auth-switch">
+
+                Don't have an account?
+
+                <button
+                  onClick={() => {
+                    setPage("register");
+                    setError("");
+                  }}
+                >
+                  Create one
+                </button>
+
+              </div>
+
+            </>
+
+          ) : (
+
+            <>
+              <div className="auth-heading">
+
+                <span>
+                  GET STARTED
+                </span>
 
                 <h2>
-                  {authMode === "login"
-                    ? "Sign in"
+                  Create your account
+                </h2>
+
+                <p>
+                  Build your career profile.
+                </p>
+
+              </div>
+
+
+              <form
+                onSubmit={handleRegister}
+              >
+
+                <div className="form-two">
+
+                  <label>
+                    Full name
+
+                    <input
+                      value={registerForm.name}
+                      onChange={(event) =>
+                        updateRegister(
+                          "name",
+                          event.target.value
+                        )
+                      }
+                      placeholder="Your full name"
+                      required
+                    />
+
+                  </label>
+
+
+                  <label>
+                    Email
+
+                    <input
+                      type="email"
+                      value={registerForm.email}
+                      onChange={(event) =>
+                        updateRegister(
+                          "email",
+                          event.target.value
+                        )
+                      }
+                      placeholder="you@example.com"
+                      required
+                    />
+
+                  </label>
+
+                </div>
+
+
+                <label>
+                  Password
+
+                  <input
+                    type="password"
+                    value={registerForm.password}
+                    onChange={(event) =>
+                      updateRegister(
+                        "password",
+                        event.target.value
+                      )
+                    }
+                    placeholder="Create a password"
+                    required
+                  />
+
+                </label>
+
+
+                <div className="form-two">
+
+                  <label>
+                    Branch
+
+                    <input
+                      value={registerForm.branch}
+                      onChange={(event) =>
+                        updateRegister(
+                          "branch",
+                          event.target.value
+                        )
+                      }
+                      placeholder="CSE"
+                      required
+                    />
+
+                  </label>
+
+
+                  <label>
+                    CGPA
+
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={registerForm.cgpa}
+                      onChange={(event) =>
+                        updateRegister(
+                          "cgpa",
+                          event.target.value
+                        )
+                      }
+                      placeholder="9.0"
+                      required
+                    />
+
+                  </label>
+
+                </div>
+
+
+                <label>
+                  Target role
+
+                  <input
+                    value={registerForm.target_role}
+                    onChange={(event) =>
+                      updateRegister(
+                        "target_role",
+                        event.target.value
+                      )
+                    }
+                    placeholder="Data Analyst"
+                    required
+                  />
+
+                </label>
+
+
+                <label>
+                  Skills
+
+                  <input
+                    value={registerForm.skills}
+                    onChange={(event) =>
+                      updateRegister(
+                        "skills",
+                        event.target.value
+                      )
+                    }
+                    placeholder="Python, Java, SQL"
+                  />
+
+                  <small>
+                    Separate skills with commas.
+                  </small>
+
+                </label>
+
+
+                {error && (
+                  <div className="auth-error">
+                    {error}
+                  </div>
+                )}
+
+
+                {success && (
+                  <div className="auth-success">
+                    {success}
+                  </div>
+                )}
+
+
+                <button
+                  className="auth-submit"
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading
+                    ? "Creating account..."
                     : "Create account"}
-                </h2>
+                </button>
 
-                <p>
-                  {authMode === "login"
-                    ? "Enter your details to continue"
-                    : "Fill in your details to get started"}
-                </p>
+              </form>
+
+
+              <div className="auth-switch">
+
+                Already have an account?
+
+                <button
+                  onClick={() => {
+                    setPage("login");
+                    setError("");
+                  }}
+                >
+                  Sign in
+                </button>
 
               </div>
 
+            </>
 
-              {/* ERROR */}
-
-              {authError && (
-
-                <div className="auth-error">
-                  ⚠ {authError}
-                </div>
-
-              )}
-
-
-              {/* SUCCESS */}
-
-              {authSuccess && (
-
-                <div className="auth-success">
-                  ✓ {authSuccess}
-                </div>
-
-              )}
-
-
-              {/* ==============================
-                  LOGIN FORM
-              ============================== */}
-
-              {authMode === "login" ? (
-
-                <form onSubmit={handleLogin}>
-
-                  <div className="input-group">
-
-                    <label>
-                      Email address
-                    </label>
-
-                    <input
-                      type="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) =>
-                        setEmail(e.target.value)
-                      }
-                      required
-                      disabled={loading}
-                    />
-
-                  </div>
-
-
-                  <div className="input-group">
-
-                    <label>
-                      Password
-                    </label>
-
-                    <input
-                      type="password"
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) =>
-                        setPassword(e.target.value)
-                      }
-                      required
-                      disabled={loading}
-                    />
-
-                  </div>
-
-
-                  <button
-                    className="auth-submit"
-                    type="submit"
-                    disabled={loading}
-                  >
-
-                    {loading
-                      ? "Signing in..."
-                      : "Sign in"}
-
-                    {!loading && (
-                      <span>→</span>
-                    )}
-
-                  </button>
-
-
-                  <div className="auth-switch">
-
-                    <span>
-                      Don't have an account?
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={openRegister}
-                    >
-                      Create one
-                    </button>
-
-                  </div>
-
-                </form>
-
-              ) : (
-
-
-                /* ==============================
-                   REGISTER FORM
-                ============================== */
-
-                <form onSubmit={handleRegister}>
-
-                  <div className="form-row">
-
-                    <div className="input-group">
-
-                      <label>
-                        Full name
-                      </label>
-
-                      <input
-                        type="text"
-                        placeholder="Your name"
-                        value={name}
-                        onChange={(e) =>
-                          setName(e.target.value)
-                        }
-                        required
-                        disabled={loading}
-                      />
-
-                    </div>
-
-
-                    <div className="input-group">
-
-                      <label>
-                        Branch
-                      </label>
-
-                      <input
-                        type="text"
-                        placeholder="CSE"
-                        value={branch}
-                        onChange={(e) =>
-                          setBranch(e.target.value)
-                        }
-                        required
-                        disabled={loading}
-                      />
-
-                    </div>
-
-                  </div>
-
-
-                  <div className="input-group">
-
-                    <label>
-                      Email address
-                    </label>
-
-                    <input
-                      type="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) =>
-                        setEmail(e.target.value)
-                      }
-                      required
-                      disabled={loading}
-                    />
-
-                  </div>
-
-
-                  <div className="form-row">
-
-                    <div className="input-group">
-
-                      <label>
-                        CGPA
-                      </label>
-
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        max="10"
-                        placeholder="8.5"
-                        value={cgpa}
-                        onChange={(e) =>
-                          setCgpa(e.target.value)
-                        }
-                        required
-                        disabled={loading}
-                      />
-
-                    </div>
-
-
-                    <div className="input-group">
-
-                      <label>
-                        Target role
-                      </label>
-
-                      <input
-                        type="text"
-                        placeholder="Python Developer"
-                        value={targetRole}
-                        onChange={(e) =>
-                          setTargetRole(e.target.value)
-                        }
-                        required
-                        disabled={loading}
-                      />
-
-                    </div>
-
-                  </div>
-
-
-                  <div className="input-group">
-
-                    <label>
-                      Skills
-                    </label>
-
-                    <input
-                      type="text"
-                      placeholder="Python, SQL, JavaScript"
-                      value={skills}
-                      onChange={(e) =>
-                        setSkills(e.target.value)
-                      }
-                      required
-                      disabled={loading}
-                    />
-
-                  </div>
-
-
-                  <div className="input-group">
-
-                    <label>
-                      Password
-                    </label>
-
-                    <input
-                      type="password"
-                      placeholder="Create a password"
-                      value={password}
-                      onChange={(e) =>
-                        setPassword(e.target.value)
-                      }
-                      required
-                      minLength="6"
-                      disabled={loading}
-                    />
-
-                  </div>
-
-
-                  <button
-                    className="auth-submit"
-                    type="submit"
-                    disabled={loading}
-                  >
-
-                    {loading
-                      ? "Creating account..."
-                      : "Create Account"}
-
-                    {!loading && (
-                      <span>→</span>
-                    )}
-
-                  </button>
-
-
-                  <div className="auth-switch">
-
-                    <span>
-                      Already have an account?
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={openLogin}
-                    >
-                      Sign in
-                    </button>
-
-                  </div>
-
-                </form>
-
-              )}
-
-            </div>
-
-          </div>
+          )}
 
         </div>
 
-      )}
+      </div>
 
     </div>
   );
 }
+
 
 export default App;
